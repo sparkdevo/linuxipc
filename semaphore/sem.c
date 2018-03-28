@@ -6,12 +6,10 @@
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
-
 #define SHMDATASIZE 1000
-#define BUFFERSIZE (SHMDATASIZE-sizeof(int))
 #define SN_EMPTY 0
 #define SN_FULL 1
-int deleteSemid=0;
+int deleteSemid = 0;
 
 void server(void);
 void client(int shmid, int semid);
@@ -19,14 +17,12 @@ void delete(void);
 void sigdelete(int signum);
 void locksem(int signum, int semnum);
 void unlocksem(int semid, int semnum);
-void waitzero(int semid, int semnum);
 void clientwrite(int shmid, int semid, char *buffer);
-
 union semun
 {
-        int val;
-        struct semid_ds *buf;
-        ushort *array; // cmd == SETALL，或 cmd = GETALL
+    int val;
+    struct semid_ds *buf;
+    ushort *array;
 };
 int safesemget(key_t key, int nssems, int semflg);
 int safesemctl(int semid, int semunm, int cmd, union semun arg);
@@ -37,7 +33,7 @@ int safeshmctl(int shmid, int cmd, struct shmid_ds *buf);
 
 int main(int argc, char *argv[ ])
 {
-    if(argc < 2){
+    if(argc < 3){
         server();
     }
     else{
@@ -50,23 +46,22 @@ void server(void)
 {
     union semun sunion;
     int semid, shmid;
-    //void *shmdata;
     char *buffer;
-    //shmdata = NULL;
     semid = safesemget(IPC_PRIVATE, 2, SHM_R|SHM_W);
     deleteSemid = semid;
+    // 在服务器端程序退出时删除掉信号量集。
     atexit(&delete);
     signal(SIGINT, &sigdelete);
+    // 把第一个信号量设置为 1，第二个信号量设置为 0,
+    // 这样来控制：必须在客户端程序把数据写入共享内存后服务器端程序才能去读共享内存
     sunion.val = 1;
     safesemctl(semid, SN_EMPTY, SETVAL, sunion);
     sunion.val = 0;
     safesemctl(semid, SN_FULL, SETVAL, sunion);
     shmid = safeshmget(IPC_PRIVATE, SHMDATASIZE, IPC_CREAT|SHM_R|SHM_W);
-    //*(int *)shmdata = safeshmat(shmid, 0, 0);
     buffer = safeshmat(shmid, 0, 0);
     safeshmctl(shmid, IPC_RMID, NULL);
-    //*(int *)shmdata = semid;
-    //buffer = shmdata + sizeof(int);
+    // 打印共享内存 ID 和 信号量集 ID，客户端程序需要用它们作为参数
     printf("Server is running with SHM id ** %d**\n", shmid);
     printf("Server is running with SEM id ** %d**\n", semid);
     while(1)
@@ -82,13 +77,8 @@ void server(void)
 
 void client(int shmid, int semid)
 {
-    //int semid;
-    //void *shmdata;
     char *buffer;
-    //shmdata = NULL;
     buffer = safeshmat(shmid, 0, 0);
-    //semid = *(int*)shmdata;
-    //buffer = shmdata;
     printf("Client operational: shm id is %d, sem id is %d\n", shmid, semid);
     while(1)
     {
@@ -136,15 +126,6 @@ void unlocksem(int semid, int semnum)
     sb.sem_num = semnum;
     sb.sem_op = 1;
     sb.sem_flg = SEM_UNDO;
-    safesemop(semid, &sb, 1);
-}
-
-void waitzero(int semid, int semnum)
-{
-    struct sembuf sb;
-    sb.sem_num = semnum;
-    sb.sem_op = 0;
-    sb.sem_flg = 0;
     safesemop(semid, &sb, 1);
 }
 
@@ -205,13 +186,6 @@ int safeshmget(key_t key, int size, int shmflg)
 void *safeshmat(int shmid, const void *shmaddr, int shmflg)
 {
     return shmat(shmid,shmaddr,shmflg);
-    /*int retval;
-    if((retval = ) == -1)
-    {
-        printf("shmat error: %s.\n", strerror(errno));
-        exit(254);
-    }
-    return retval;*/
 }
 
 int safeshmctl(int shmid, int cmd, struct shmid_ds *buf)
